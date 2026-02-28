@@ -5,6 +5,7 @@ import {
   sendPayment,
   getAccountInfo,
   setNetwork,
+  fundWallet,
 } from "@/lib/stellar-tools";
 import { listWallets } from "@/lib/wallet-manager";
 import { tool } from "@langchain/core/tools";
@@ -18,22 +19,9 @@ import { MongoClient } from "mongodb";
 // Connect to your MongoDB cluster
 const client = new MongoClient(process.env.MONGODB_URI!);
 
-client
-  .connect()
-  .then(async (res) => {
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
-  })
-  .catch((e) => {
-    console.error(`Something went wrong: ${e.message}`);
-  });
-
 // Initialize the MongoDB checkpointer
 const checkpointer = new MongoDBSaver({
   client,
-  dbName: "StellarAgent",
 });
 
 // const checkpointer = new MemorySaver();
@@ -45,7 +33,7 @@ interface ChatMessage {
 
 const llm = new ChatGroq({
   apiKey: process.env.GROQ_API_KEY,
-  model: "llama-3.3-70b-versatile",
+  model: "llama-3.1-8b-instant",
   temperature: 0,
 });
 
@@ -66,24 +54,39 @@ export const createWalletTool = tool(
         .default("testnet")
         .describe("Stellar network to use"),
     }),
-  }
+  },
 );
 
 export const getBalanceTool = tool(
-  async ({ wallet_name, toolCallId }) => {
-    const sessionId = toolCallId.split("-")[0];
-    return await getBalance(sessionId, wallet_name);
+  async ({ walletAddress, network }) => {
+    return await getBalance(walletAddress, network);
   },
   {
     name: "get_balance",
     description: "Get the balance of a specific wallet",
-    parameters: z.object({
-      wallet_name: z
+    schema: z.object({
+      walletAddress: z
         .string()
-        .describe("Name of the wallet to check balance for"),
-      toolCallId: z.any(),
+        .describe("The wallet address for the balance to be searched for"),
+      network: z
+        .enum(["testnet", "public"])
+        .default("testnet")
+        .describe("Stellar network to use"),
     }),
-  }
+  },
+);
+
+export const fundWalletTool = tool(
+  async ({ walletAddress }) => {
+    return await fundWallet(walletAddress);
+  },
+  {
+    name: "fund_wallet",
+    description: "This is used to fund the wallet of the provided",
+    schema: z.object({
+      walletAddress: z.string().describe("The wallet address to fund."),
+    }),
+  },
 );
 
 export const sendPaymentTool = tool(
@@ -92,14 +95,15 @@ export const sendPaymentTool = tool(
     return await sendPayment(sessionId, from_wallet, to_address, amount, asset);
   },
   {
+    name: "send_payment",
     description: "Send XLM payment from one wallet to another address",
-    parameters: z.object({
+    schema: z.object({
       from_wallet: z.string().describe("Name of the wallet to send from"),
       to_address: z.string().describe("Destination public key or address"),
       amount: z.string().describe("Amount of XLM to send"),
       asset: z.string().default("XLM").describe("Asset code (default: XLM)"),
     }),
-  }
+  },
 );
 
 //   list_wallets: tool({
@@ -134,16 +138,23 @@ export const getAccountInfoTool = tool(
     return await getAccountInfo(sessionId, wallet_name);
   },
   {
+    name: "get_account_info",
     description: "Get detailed account information for a wallet",
-    parameters: z.object({
+    schema: z.object({
       wallet_name: z.string().describe("Name of the wallet"),
     }),
-  }
+  },
 );
 
 export const stellarAgent = createAgent({
   model: llm,
-  tools: [createWalletTool],
+  tools: [
+    createWalletTool,
+    getBalanceTool,
+    getAccountInfoTool,
+    sendPaymentTool,
+    fundWalletTool,
+  ],
   systemPrompt: `You are a helpful Stellar blockchain assistant. You help users manage their Stellar wallets, check balances, and send payments.
   
   When users ask to create wallets, check balances, send payments, or manage their accounts, use the available tools to help them.

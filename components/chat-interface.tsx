@@ -7,6 +7,9 @@ import { Card } from "@/components/ui/card";
 import { MessageBubble } from "./message-bubble";
 import { Send } from "lucide-react";
 import { useChat } from "@/hooks/use-chat";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import Image from "next/image";
+import { ConnectButton } from "./connect-button";
 
 export function ChatInterface() {
   const {
@@ -35,11 +38,24 @@ export function ChatInterface() {
 
   return (
     <div className="flex flex-col h-full max-w-2xl mx-auto">
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <header className="sticky top-0 z-50 shadow-md w-full p-4 bg-gradient-to-b from-blue-50 to-white flex items-center justify-between">
+        <h1 className="font-bold">Stellar AI Agent</h1>
+
+        <ConnectButton />
+      </header>
+      <ScrollArea className="flex-1 p-4 space-y-2 grid">
         {messages.length === 0 && (
           <div className="h-full flex items-center justify-center text-center">
-            <Card className="p-8 max-w-sm">
-              <h2 className="text-2xl font-bold mb-2">Stellar Wallet Chat</h2>
+            <Card className="p-8 max-w-sm grid place-items-center">
+              <div className="flex items-center">
+                <Image
+                  src="icon.svg"
+                  width={200}
+                  height={200}
+                  alt="Stellar Logo"
+                />
+                <h1>AI</h1>
+              </div>
               <p className="text-gray-600">
                 Start by asking me to create a wallet, check balances, or send
                 payments on the Stellar network.
@@ -111,9 +127,9 @@ export function ChatInterface() {
         })}
 
         <div ref={messagesEndRef} />
-      </div>
+      </ScrollArea>
 
-      <div className="border-t p-4 bg-white">
+      <div className="border-t p-4 sticky bottom-0 bg-white shadow-md">
         <form onSubmit={handleSubmit} className="flex gap-2">
           <Input
             value={input}

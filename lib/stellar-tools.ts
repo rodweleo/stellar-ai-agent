@@ -12,9 +12,10 @@ import {
   getWallet,
   setNetwork as updateNetwork,
 } from "./wallet-manager";
+import axios from "axios";
 
 const TESTNET_SERVER = new Horizon.Server(
-  "https://horizon-testnet.stellar.org"
+  "https://horizon-testnet.stellar.org",
 );
 const PUBLIC_SERVER = new Horizon.Server("https://horizon.stellar.org");
 
@@ -33,11 +34,15 @@ export interface ToolResult {
 export async function createWallet(
   sessionId: string,
   name: string,
-  network: "testnet" | "public" = "testnet"
+  network: "testnet" | "public" = "testnet",
 ): Promise<ToolResult> {
   try {
     const keypair = Keypair.random();
-    addWallet(sessionId, name, keypair.publicKey(), keypair.secret(), network);
+    const publicKey = keypair.publicKey();
+
+    await addWallet(sessionId, name, publicKey, keypair.secret(), network);
+
+    await fundWallet(publicKey);
 
     return {
       success: true,
@@ -59,20 +64,20 @@ export async function createWallet(
 
 // Get account balance
 export async function getBalance(
-  sessionId: string,
-  walletName: string
-): Promise<ToolResult> {
+  walletAddress: string,
+  network: "testnet" | "public",
+): Promise<ToolResult | string> {
   try {
-    const wallet = getWallet(sessionId, walletName);
-    if (!wallet) {
-      return {
-        success: false,
-        message: `Wallet '${walletName}' not found`,
-      };
+    if (!walletAddress) {
+      return "Wallet address is required to fetch the account balance";
     }
 
-    const server = getServer(wallet.network);
-    const account = await server.loadAccount(wallet.publicKey);
+    if (!network) {
+      return "You need to specify the network for the wallet public key";
+    }
+
+    const server = getServer(network);
+    const account = await server.loadAccount(walletAddress);
 
     const balances = account.balances.map((balance) => ({
       asset: balance.asset_type === "native" ? "XLM" : balance.asset_code,
@@ -81,18 +86,48 @@ export async function getBalance(
 
     return {
       success: true,
-      message: `Balance for wallet '${walletName}'`,
+      message: `Balance for wallet '${walletAddress}'`,
       data: {
-        walletName,
+        walletAddress,
         balances,
-        network: wallet.network,
+        network: network,
       },
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to get balance for wallet '${walletName}'`,
+      message: `Failed to get balance for wallet '${walletAddress}'`,
       error: String(error),
+    };
+  }
+}
+
+export async function fundWallet(
+  publicKey: string,
+): Promise<ToolResult | string> {
+  try {
+    console.log(`Funding public account -> ${publicKey}`);
+    const res = await axios.get(
+      `https://friendbot.stellar.org/?addr=${publicKey}`,
+    );
+
+    if (res.status === 400) {
+      return {
+        success: false,
+        data: res.data,
+        message: "Wallet funded failed",
+      };
+    }
+    return {
+      success: true,
+      data: res.data,
+      message: "Wallet funded successfully",
+    };
+  } catch (e) {
+    return {
+      success: false,
+      message: `Failed to fund wallet: '${publicKey}'`,
+      error: e.response.data.detail,
     };
   }
 }
@@ -103,10 +138,10 @@ export async function sendPayment(
   fromWallet: string,
   toPublicKey: string,
   amount: string,
-  asset: string = "XLM"
+  asset: string = "XLM",
 ): Promise<ToolResult> {
   try {
-    const wallet = getWallet(sessionId, fromWallet);
+    const wallet = await getWallet(sessionId, fromWallet);
     if (!wallet) {
       return {
         success: false,
@@ -139,7 +174,7 @@ export async function sendPayment(
           destination: toPublicKey,
           asset: stellarAsset,
           amount: amount,
-        })
+        }),
       )
       // .setBaseFee(BASE_FEE)
       .setTimeout(30)
@@ -170,10 +205,10 @@ export async function sendPayment(
 // Get account info
 export async function getAccountInfo(
   sessionId: string,
-  walletName: string
+  walletName: string,
 ): Promise<ToolResult> {
   try {
-    const wallet = getWallet(sessionId, walletName);
+    const wallet = await getWallet(sessionId, walletName);
     if (!wallet) {
       return {
         success: false,
@@ -210,7 +245,7 @@ export async function getAccountInfo(
 export async function setNetwork(
   sessionId: string,
   walletName: string,
-  network: "testnet" | "public"
+  network: "testnet" | "public",
 ): Promise<ToolResult> {
   try {
     const wallet = updateNetwork(sessionId, walletName, network);
