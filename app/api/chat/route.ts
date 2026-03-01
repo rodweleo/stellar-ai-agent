@@ -1,4 +1,4 @@
-import { configs, stellarAgent } from "@/lib/agent";
+import { clientPromise, configs, stellarAgent } from "@/lib/agent";
 import { ChatMessage } from "@langchain/core/messages";
 
 export async function POST(req: Request) {
@@ -25,6 +25,7 @@ export async function POST(req: Request) {
       return new Response("No messages provided", { status: 400 });
     }
 
+    await clientPromise;
     const stream = await stellarAgent.stream(
       { messages: [latestUserMessage] },
       config,
