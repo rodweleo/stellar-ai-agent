@@ -10,7 +10,12 @@ import {
 } from "@/lib/stellar-tools";
 import { listWallets } from "@/lib/wallet-manager";
 import { tool } from "@langchain/core/tools";
-import { createAgent, humanInTheLoopMiddleware } from "langchain";
+import {
+  createAgent,
+  humanInTheLoopMiddleware,
+  piiMiddleware,
+  createMiddleware,
+} from "langchain";
 import { ChatGroq } from "@langchain/groq";
 import { interrupt, MemorySaver } from "@langchain/langgraph";
 import crypto from "crypto";
@@ -195,6 +200,20 @@ export const stellarAgent = createAgent({
       },
 
       descriptionPrefix: "Sending payment requires approval",
+    }),
+    piiMiddleware("stellar_secret_key", {
+      detector: (text: string) => {
+        const matches = text.match(/S[A-Z2-7]{55}/g) ?? [];
+        return matches.map((match) => ({
+          text: match,
+          match,
+          start: text.indexOf(match),
+          end: text.indexOf(match) + match.length,
+        }));
+      },
+      strategy: "mask",
+      applyToInput: true,
+      applyToToolResults: true,
     }),
   ],
   systemPrompt: `You are a helpful Stellar blockchain assistant. You help users manage their Stellar wallets, check balances, and send payments.

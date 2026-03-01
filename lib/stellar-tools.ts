@@ -46,10 +46,11 @@ export async function createWallet(
 
     return {
       success: true,
-      message: `Wallet '${name}' created successfully on ${network}. Public key is ${keypair.publicKey()}`,
+      message: `Wallet created successfully.`,
       data: {
         name,
         publicKey: keypair.publicKey(),
+        secretKey: keypair.secret(),
         network,
       },
     };
