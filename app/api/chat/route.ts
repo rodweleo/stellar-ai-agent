@@ -3,31 +3,47 @@ import { ChatMessage } from "@langchain/core/messages";
 
 export async function POST(req: Request) {
   try {
-    const { messages } = (await req.json()) as { messages: ChatMessage[] };
+    const { messages, threadId } = (await req.json()) as {
+      messages: { role: string; content: string }[];
+      threadId?: string;
+    };
 
     if (!messages || !Array.isArray(messages)) {
       return new Response("Invalid messages format", { status: 400 });
     }
 
+    const config = {
+      configurable: {
+        thread_id: threadId ?? configs.configurable.thread_id,
+      },
+      streamMode: "values" as const,
+    };
+
+    // Only send the latest user message — checkpointer handles history
+    const latestUserMessage = messages.at(-1);
+    if (!latestUserMessage) {
+      return new Response("No messages provided", { status: 400 });
+    }
+
     const stream = await stellarAgent.stream(
-      { messages },
-      { ...configs, streamMode: "values" },
+      { messages: [latestUserMessage] },
+      config,
     );
 
     const readableStream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
+        let lastEmittedId: string | undefined;
+
         try {
           for await (const chunk of stream) {
-            // Handle interrupt chunks — they don't have a messages array
             if (chunk.__interrupt__) {
               const interruptData = chunk.__interrupt__[0].value;
-              console.log(interruptData);
               controller.enqueue(
                 encoder.encode(
                   JSON.stringify({
                     type: "interrupt",
-                    threadId: configs.configurable.thread_id,
+                    threadId: config.configurable.thread_id,
                     ...(interruptData as any),
                   }) + "\n",
                 ),
@@ -35,11 +51,15 @@ export async function POST(req: Request) {
               continue;
             }
 
-            // Guard: some chunks may not have messages
             if (!chunk.messages?.length) continue;
 
             const latestMessage = chunk.messages.at(-1);
             if (latestMessage?._getType?.() !== "ai") continue;
+
+            // Skip if we already emitted this exact message
+            if (latestMessage.id && latestMessage.id === lastEmittedId)
+              continue;
+            lastEmittedId = latestMessage.id;
 
             if (latestMessage?.content) {
               controller.enqueue(
@@ -86,7 +106,6 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("Chat API error:", error);
-    console.log(error?.errorResponse);
     return new Response(
       JSON.stringify({
         type: "error",

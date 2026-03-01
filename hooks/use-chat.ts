@@ -111,10 +111,7 @@ export function useChat() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             threadId: threadId.current,
-            messages: [...messages, userMessage].map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
+            messages: [{ role: "user", content: input }],
           }),
         });
 
