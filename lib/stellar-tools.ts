@@ -202,6 +202,85 @@ export async function sendPayment(
   }
 }
 
+export async function buildPaymentXDR(
+  sessionId: string,
+  fromWallet: string,
+  toPublicKey: string,
+  amount: string,
+  asset: string = "XLM",
+  network: "testnet" | "public",
+): Promise<ToolResult & { xdr?: string; requiresApproval?: boolean }> {
+  try {
+    console.log("Building the payment XDR");
+    const server = getServer(network);
+    const sourceAccount = await server.loadAccount(fromWallet);
+
+    const stellarAsset =
+      asset === "XLM" ? Asset.native() : new Asset(asset, fromWallet);
+
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase:
+        network === "testnet" ? Networks.TESTNET : Networks.PUBLIC,
+    })
+      .addOperation(
+        Operation.payment({
+          destination: toPublicKey,
+          asset: stellarAsset,
+          amount,
+        }),
+      )
+      .setTimeout(30)
+      .build();
+
+    return {
+      success: true,
+      requiresApproval: true,
+      message: "Transaction built and awaiting user approval",
+      xdr: tx.toXDR(),
+      data: {
+        from: fromWallet,
+        fromWalletName: fromWallet,
+        to: toPublicKey,
+        amount,
+        asset,
+        network: network,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: "Failed to build payment",
+      error: String(error),
+    };
+  }
+}
+
+export async function submitSignedPayment(
+  signedXdr: string,
+  network: "testnet" | "public" = "testnet",
+): Promise<ToolResult> {
+  try {
+    const server = getServer(network);
+    const tx = TransactionBuilder.fromXDR(
+      signedXdr,
+      network === "testnet" ? Networks.TESTNET : Networks.PUBLIC,
+    );
+    const result = await server.submitTransaction(tx);
+    return {
+      success: true,
+      message: "Payment submitted successfully",
+      data: { transactionHash: result.hash, ledger: result.ledger },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: "Failed to submit payment",
+      error: String(error),
+    };
+  }
+}
+
 // Get account info
 export async function getAccountInfo(
   sessionId: string,

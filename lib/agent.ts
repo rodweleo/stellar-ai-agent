@@ -6,12 +6,13 @@ import {
   getAccountInfo,
   setNetwork,
   fundWallet,
+  buildPaymentXDR,
 } from "@/lib/stellar-tools";
 import { listWallets } from "@/lib/wallet-manager";
 import { tool } from "@langchain/core/tools";
-import { createAgent } from "langchain";
+import { createAgent, humanInTheLoopMiddleware } from "langchain";
 import { ChatGroq } from "@langchain/groq";
-import { MemorySaver } from "@langchain/langgraph";
+import { interrupt, MemorySaver } from "@langchain/langgraph";
 import crypto from "crypto";
 import { MongoDBSaver } from "@langchain/langgraph-checkpoint-mongodb";
 import { MongoClient } from "mongodb";
@@ -90,18 +91,47 @@ export const fundWalletTool = tool(
 );
 
 export const sendPaymentTool = tool(
-  async ({ from_wallet, to_address, amount, asset }, { toolCallId }) => {
-    const sessionId = toolCallId.split("-")[0];
-    return await sendPayment(sessionId, from_wallet, to_address, amount, asset);
+  async ({ from_wallet, to_address, amount, asset, network }, config) => {
+    const sessionId = config?.configurable?.thread_id ?? crypto.randomUUID();
+
+    const built = await buildPaymentXDR(
+      sessionId,
+      from_wallet,
+      to_address,
+      amount,
+      asset,
+      network,
+    );
+
+    if (!built.success) return built;
+
+    // Native LangGraph interrupt — pauses the graph here and waits
+    const decision = interrupt({
+      type: "transaction_approval_required",
+      xdr: built.xdr,
+      details: built.data,
+    });
+
+    // Graph resumes here after /api/resume is called
+    if (decision === "reject") {
+      return { success: false, message: "Transaction rejected by user." };
+    }
+
+    return;
   },
   {
     name: "send_payment",
-    description: "Send XLM payment from one wallet to another address",
+    description:
+      "Build a Stellar payment transaction for user approval. Returns an unsigned XDR that the user must approve and sign.",
     schema: z.object({
       from_wallet: z.string().describe("Name of the wallet to send from"),
-      to_address: z.string().describe("Destination public key or address"),
-      amount: z.string().describe("Amount of XLM to send"),
+      to_address: z.string().describe("Destination public key"),
+      amount: z.string().describe("Amount to send"),
       asset: z.string().default("XLM").describe("Asset code (default: XLM)"),
+      network: z
+        .enum(["testnet", "public"])
+        .default("testnet")
+        .describe("Stellar network to use"),
     }),
   },
 );
@@ -154,6 +184,18 @@ export const stellarAgent = createAgent({
     getAccountInfoTool,
     sendPaymentTool,
     fundWalletTool,
+  ],
+  middleware: [
+    humanInTheLoopMiddleware({
+      interruptOn: {
+        send_payment: {
+          allowedDecisions: ["approve", "reject"],
+          description: "Sending payment requires approval",
+        },
+      },
+
+      descriptionPrefix: "Sending payment requires approval",
+    }),
   ],
   systemPrompt: `You are a helpful Stellar blockchain assistant. You help users manage their Stellar wallets, check balances, and send payments.
   

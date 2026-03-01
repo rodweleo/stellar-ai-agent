@@ -10,6 +10,7 @@ import { useChat } from "@/hooks/use-chat";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Image from "next/image";
 import { ConnectButton } from "./connect-button";
+import { TransactionApprovalDialog } from "./transaction-approval-dialog";
 
 export function ChatInterface() {
   const {
@@ -20,6 +21,9 @@ export function ChatInterface() {
     handleSubmit,
     isLoading,
     error,
+    pendingTx,
+    setPendingTx,
+    handleDecision,
   } = useChat();
 
   // console.log(messages);
@@ -35,6 +39,8 @@ export function ChatInterface() {
   }, [messages]);
 
   if (!mounted) return null;
+
+  // console.log(pendingTx);
 
   return (
     <div className="flex flex-col h-full max-w-2xl mx-auto">
@@ -125,6 +131,12 @@ export function ChatInterface() {
             />
           );
         })}
+
+        <TransactionApprovalDialog
+          transaction={pendingTx}
+          onApproved={() => handleDecision("approve")}
+          onDeclined={() => handleDecision("reject")}
+        />
 
         <div ref={messagesEndRef} />
       </ScrollArea>

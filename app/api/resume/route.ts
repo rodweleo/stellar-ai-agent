@@ -1,17 +1,26 @@
-import { configs, stellarAgent } from "@/lib/agent";
-import { ChatMessage } from "@langchain/core/messages";
+import { stellarAgent } from "@/lib/agent";
+import { Command } from "@langchain/langgraph";
 
 export async function POST(req: Request) {
   try {
-    const { messages } = (await req.json()) as { messages: ChatMessage[] };
+    const { threadId, decision } = (await req.json()) as {
+      threadId: string;
+      decision: "approve" | "reject";
+    };
 
-    if (!messages || !Array.isArray(messages)) {
-      return new Response("Invalid messages format", { status: 400 });
+    if (!threadId || !decision) {
+      return new Response("Missing threadId or decision", { status: 400 });
     }
 
+    const config = {
+      configurable: { thread_id: threadId },
+      streamMode: "values" as const,
+    };
+
+    // Resume the interrupted graph by passing the decision as the interrupt value
     const stream = await stellarAgent.stream(
-      { messages },
-      { ...configs, streamMode: "values" },
+      new Command({ resume: decision }),
+      config,
     );
 
     const readableStream = new ReadableStream({
@@ -19,25 +28,6 @@ export async function POST(req: Request) {
         const encoder = new TextEncoder();
         try {
           for await (const chunk of stream) {
-            // Handle interrupt chunks — they don't have a messages array
-            if (chunk.__interrupt__) {
-              const interruptData = chunk.__interrupt__[0].value;
-              console.log(interruptData);
-              controller.enqueue(
-                encoder.encode(
-                  JSON.stringify({
-                    type: "interrupt",
-                    threadId: configs.configurable.thread_id,
-                    ...(interruptData as any),
-                  }) + "\n",
-                ),
-              );
-              continue;
-            }
-
-            // Guard: some chunks may not have messages
-            if (!chunk.messages?.length) continue;
-
             const latestMessage = chunk.messages.at(-1);
             if (latestMessage?._getType?.() !== "ai") continue;
 
@@ -48,16 +38,6 @@ export async function POST(req: Request) {
                     type: "message",
                     content: latestMessage.content,
                   }) + "\n",
-                ),
-              );
-            } else if (latestMessage?.tool_calls?.length) {
-              const toolCallNames = latestMessage.tool_calls.map(
-                (tc) => tc.name,
-              );
-              controller.enqueue(
-                encoder.encode(
-                  JSON.stringify({ type: "tool_call", tools: toolCallNames }) +
-                    "\n",
                 ),
               );
             }
@@ -85,8 +65,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (error) {
-    console.error("Chat API error:", error);
-    console.log(error?.errorResponse);
+    console.error("Resume API error:", error);
     return new Response(
       JSON.stringify({
         type: "error",
