@@ -69,7 +69,7 @@ export function useChat() {
                 m.id === assistantId
                   ? {
                       ...m,
-                      content: `🔧 Calling: ${event.tools.join(", ")}...`,
+                      content: `Calling: ${event.tools.join(", ")}...`,
                     }
                   : m,
               ),

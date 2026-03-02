@@ -16,14 +16,6 @@ async function getWalletCollection() {
   const client = await clientPromise;
   return client.db("StellarAgent").collection<StoredWallet>("wallets");
 }
-// export function getSessionWallets(
-//   sessionId: string,
-// ): Map<string, StoredWallet> {
-//   if (!walletSessions.has(sessionId)) {
-//     walletSessions.set(sessionId, new Map());
-//   }
-//   return walletSessions.get(sessionId)!;
-// }
 
 export async function addWallet(
   sessionId: string,

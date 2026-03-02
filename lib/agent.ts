@@ -27,11 +27,11 @@ const client = new MongoClient(process.env.MONGODB_URI!);
 export const clientPromise = client.connect();
 
 // Initialize the MongoDB checkpointer
-const checkpointer = new MongoDBSaver({
-  client,
-});
+// const checkpointer = new MongoDBSaver({
+//   client,
+// });
 
-// const checkpointer = new MemorySaver();
+const checkpointer = new MemorySaver();
 
 interface ChatMessage {
   role: "user" | "assistant";
